@@ -3,22 +3,18 @@ import pandas as pd
 import numpy as np
 import joblib
 import pickle
+import tensorflow as tf
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 import sys
 import traceback
-import subprocess
 import matplotlib
 matplotlib.use('Agg')  # ✅ Use non-GUI backend to avoid Tkinter errors
 
 import matplotlib.pyplot as plt
 
-try:
-    import tensorflow as tf
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "./tensorflow-2.11.0-cp39-cp39-manylinux2010_x86_64.whl"])
-    import tensorflow as tf
+
 class AgriculturalAssistant:
     def __init__(self, base_path=None):
         """Initialize the integrated agricultural assistant system"""
