@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container d-flex justify-content-center">
+    <div class="w-100" style="max-width: 700px;">
+        <h2 class="text-center">Crop Recommendation Result</h2>
+        <div class="card-body">
+            <h3 class="mb-4 text-center">
+                Recommended Crop: <span style="color: #1f5666;">{{ result.recommendation }}</span>
+            </h3>
+            
+            <div class="row justify-content-center">
+                <div class="col-md-12">
+                    <h4>Input Parameters:</h4>
+                    <ul class="list-group mb-4">
+                        <li class="list-group-item">Nitrogen (N): {{ result.input.N }}</li>
+                        <li class="list-group-item">Phosphorus (P): {{ result.input.P }}</li>
+                        <li class="list-group-item">Potassium (K): {{ result.input.K }}</li>
+                        <li class="list-group-item">Temperature: {{ result.input.temperature }}°C</li>
+                        <li class="list-group-item">Humidity: {{ result.input.humidity }}%</li>
+                        <li class="list-group-item">pH: {{ result.input.ph }}</li>
+                        <li class="list-group-item">Rainfall: {{ result.input.rainfall }} mm</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="mt-4 text-center">
+                <a href="{{ url_for('crop_recommendation') }}" class="btn" style="background-color: #1f5666; color: white;">
+                    New Recommendation
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
