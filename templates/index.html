@@ -11,7 +11,7 @@
     <p class="lead text-muted mb-5">
       Welcome to our site!,<br>
       At AgroX, we harness the power of AI to help farmers and agricultural professionals.
-      Our platform offers personalized fertilizer recommendations and optimal crop suggestions based on soil and climate data.
+      Our platform offers smart solutions like crop price prediction for the next 5 days, personalized fertilizer recommendations, and optimal crop suggestions based on soil and climate data.
       Make data-driven decisions with confidence and boost your yield and profits sustainably.
     </p>
 
@@ -19,6 +19,17 @@
     <div class="d-flex flex-column gap-5">
 
       <!-- Panel 1 -->
+      <div class="row align-items-center" data-aos="fade-right">
+        <div class="col-md-6">
+          <img src="{{ url_for('static', filename='price.jpg') }}" class="img-fluid" style="border: none; box-shadow: none;" alt="Price Prediction">
+        </div>
+        <div class="col-md-6 text-start">
+          <h3>Crop Price Prediction</h3>
+          <p>Make informed decisions with our AI-powered price forecasting system for agricultural commodities.</p>
+          <a href="{{ url_for('price_prediction') }}" class="btn mt-2" style="background-color: #1f5666; color: white;">Go to Price Prediction</a>
+        </div>
+      </div>
+
       <!-- Panel 2 -->
       <div class="row align-items-center flex-md-row-reverse" data-aos="fade-left">
         <div class="col-md-6">

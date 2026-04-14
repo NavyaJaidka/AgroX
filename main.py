@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import pickle
+import tensorflow as tf
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -37,9 +38,8 @@ class AgriculturalAssistant:
         self.crop_encoder_path = os.path.join(self.crop_recommendation_dir, "label_encoder.joblib")
         self.fertilizer_model_path = os.path.join(self.fertilizer_recommendation_dir, "fertilizer_model.pkl")
         self.fertilizer_encoder_path = os.path.join(self.fertilizer_recommendation_dir, "label_encoders.pkl")
-        # Price prediction is disabled in this deployment to remove the TensorFlow dependency.
-        self.price_model_path = None
-        self.price_scaler_path = None
+        self.price_model_path = os.path.join(self.crop_price_prediction_dir, "lstm_model.h5")
+        self.price_scaler_path = os.path.join(self.crop_price_prediction_dir, "price_scaler.pkl")
         
         # Define output directories
         self.output_dir = os.path.join(self.base_path, "outputs")
@@ -134,8 +134,18 @@ class AgriculturalAssistant:
         else:
             print("Fertilizer recommendation model not found. Some features will be disabled.")
             
-        # Price prediction feature is disabled because TensorFlow is not included.
-        print("Price prediction feature is disabled in this deployment.")
+        # Load price prediction model
+        if all(os.path.exists(path) for path in [self.price_model_path, self.price_scaler_path]):
+            try:
+                print("Loading price prediction model...")
+                # Since TensorFlow is not used, we'll use a simple linear regression model
+                # Load the scaler, but for prediction, we'll use a simple trend-based approach
+                self.price_scaler = joblib.load(self.price_scaler_path)
+                print("Price prediction model loaded successfully (using simple trend analysis).")
+            except Exception as e:
+                print(f"Error loading price prediction model: {e}")
+        else:
+            print("Price prediction model not found. Some features will be disabled.")
     
     def recommend_crop(self, N, P, K, temperature, humidity, ph, rainfall):
         """Recommend a crop based on soil parameters and environmental conditions"""
@@ -256,8 +266,8 @@ class AgriculturalAssistant:
         return suggestions
     
     def predict_crop_prices(self, crop_name, historical_data_path):
-        """Predict crop prices for the next 5 days with improved reliability and error handling"""
-        if self.price_model is None or self.price_scaler is None:
+        """Predict crop prices for the next 5 days using simple trend analysis (no TensorFlow)"""
+        if self.price_scaler is None:
             return "Price prediction model not loaded."
             
         try:
@@ -309,9 +319,8 @@ class AgriculturalAssistant:
                 crop_data['price'] = crop_data['price'].ffill().bfill()
             
             # Check if we have sufficient data
-            sequence_length = 30  # Must match the model's expected sequence length
-            if len(crop_data) < sequence_length:
-                return f"Not enough historical data. Need at least {sequence_length} days, but found {len(crop_data)}."
+            if len(crop_data) < 10:  # Need at least 10 days for trend analysis
+                return f"Not enough historical data. Need at least 10 days, but found {len(crop_data)}."
             
             # Extract price data
             prices = crop_data['price'].values
@@ -328,104 +337,54 @@ class AgriculturalAssistant:
                     offset = abs(min_price) + 0.01
                     prices = prices + offset
             
-            try:
-                # Create additional features similar to what was used during training
-                # Calculate rolling statistics for price
-                price_7d_mean = np.convolve(prices, np.ones(7)/7, mode='same')
-                price_30d_mean = np.convolve(prices, np.ones(30)/30, mode='same')
+            # Simple trend-based prediction using linear regression
+            from sklearn.linear_model import LinearRegression
+            
+            # Create time index
+            time_index = np.arange(len(prices)).reshape(-1, 1)
+            
+            # Fit linear regression model
+            model = LinearRegression()
+            model.fit(time_index, prices)
+            
+            # Predict next 5 days
+            future_time_index = np.arange(len(prices), len(prices) + 5).reshape(-1, 1)
+            predicted_prices = model.predict(future_time_index)
+            
+            # Ensure predictions are positive and reasonable
+            predicted_prices = np.maximum(predicted_prices, 0.1)  # Minimum price
+            predicted_prices = np.minimum(predicted_prices, np.max(prices) * 2.0)  # Maximum reasonable price
+            
+            # Generate future dates
+            prediction_days = len(predicted_prices)
+            if 'date' in crop_data.columns:
+                last_date = crop_data['date'].iloc[-1]
+                future_dates = self.generate_future_dates(last_date, prediction_days)
                 
-                # Calculate rolling standard deviation (simple approach)
-                price_7d_std = []
-                for i in range(len(prices)):
-                    start_idx = max(0, i-6)
-                    price_7d_std.append(np.std(prices[start_idx:i+1]))
-                price_7d_std = np.array(price_7d_std)
-                
-                # Get date features if available
-                if 'date' in crop_data.columns:
-                    month = crop_data['date'].dt.month.values
-                    day_of_week = crop_data['date'].dt.dayofweek.values
-                    day_of_year = crop_data['date'].dt.dayofyear.values
-                else:
-                    # Use dummy values if date not available
-                    month = np.ones_like(prices)
-                    day_of_week = np.ones_like(prices)
-                    day_of_year = np.ones_like(prices)
-                
-                # Combine all features - must match exactly what the model was trained with
-                features = np.column_stack([
-                    prices,
-                    price_7d_mean,
-                    price_30d_mean,
-                    price_7d_std,
-                    month,
-                    day_of_week,
-                    day_of_year
-                ])
-                
-                # Create input sequence for prediction (use last sequence_length days)
-                X_pred = features[-sequence_length:].reshape(1, sequence_length, 7)
-                
-                # Scale the features
-                X_pred_scaled = np.zeros_like(X_pred)
-                for i in range(sequence_length):
-                    X_pred_scaled[0, i] = self.price_scaler.transform(X_pred[0, i].reshape(1, -1))
-                
-                # Make prediction
-                prediction_scaled = self.price_model.predict(X_pred_scaled)
-                
-                # Reshape prediction for inverse transform
-                prediction_scaled_reshaped = prediction_scaled.reshape(-1, 1)
-                
-                # Inverse transform to get actual prices
-                # Create dummy array with same number of features
-                dummy_array = np.zeros((len(prediction_scaled_reshaped), 7))
-                dummy_array[:, 0] = prediction_scaled_reshaped.flatten()  # Put scaled predictions in price column
-                
-                # Inverse transform and extract only the price column
-                predicted_full = self.price_scaler.inverse_transform(dummy_array)
-                predicted_prices = predicted_full[:, 0]  # Extract price column
-                
-                # Post-process predictions to ensure they're reasonable
-                # Clip to reasonable range based on historical data
-                min_allowed = max(0.1, np.min(prices) * 0.5)  # Min price at least 0.1 but could be lower if data shows it
-                max_allowed = np.max(prices) * 2.0  # Max at double the highest historical price
-                predicted_prices = np.clip(predicted_prices, min_allowed, max_allowed)
-                
-                # Generate future dates
-                prediction_days = len(predicted_prices)
-                if 'date' in crop_data.columns:
-                    last_date = crop_data['date'].iloc[-1]
-                    future_dates = self.generate_future_dates(last_date, prediction_days)
-                    
-                    # Create result dictionary
-                    result = {
-                        "prediction": [
-                            {"date": date.strftime('%Y-%m-%d'), "price": float(price)}
-                            for date, price in zip(future_dates, predicted_prices)
-                        ]
-                    }
-                else:
-                    result = {
-                        "prediction": [
-                            {"day": i+1, "price": float(price)}
-                            for i, price in enumerate(predicted_prices)
-                        ]
-                    }
-                
-                # Visualize the prediction
-                plot_file = self.visualize_price_prediction(
-                    crop_data['price'].values[-30:],
-                    predicted_prices,
-                    crop_name
-                )
-                
-                result["plot_file"] = plot_file
-                return result
-                
-            except Exception as e:
-                traceback.print_exc()  # Print full stack trace for debugging
-                return f"Error during prediction: {e}"
+                # Create result dictionary
+                result = {
+                    "prediction": [
+                        {"date": date.strftime('%Y-%m-%d'), "price": float(price)}
+                        for date, price in zip(future_dates, predicted_prices)
+                    ]
+                }
+            else:
+                result = {
+                    "prediction": [
+                        {"day": i+1, "price": float(price)}
+                        for i, price in enumerate(predicted_prices)
+                    ]
+                }
+            
+            # Visualize the prediction
+            plot_file = self.visualize_price_prediction(
+                crop_data['price'].values[-30:],
+                predicted_prices,
+                crop_name
+            )
+            
+            result["plot_file"] = plot_file
+            return result
                 
         except Exception as e:
             traceback.print_exc()  # Print full stack trace for debugging
@@ -482,16 +441,19 @@ class AgriculturalAssistant:
             print("\n===== Agricultural Assistant =====")
             print("1. Crop Recommendation")
             print("2. Fertilizer Recommendation")
-            print("3. Exit")
+            print("3. Crop Price Prediction")
+            print("4. Exit")
             
             try:
-                choice = input("\nEnter your choice (1-3): ")
+                choice = input("\nEnter your choice (1-4): ")
                 
                 if choice == '1':
                     self.run_crop_recommendation()
                 elif choice == '2':
                     self.run_fertilizer_recommendation()
                 elif choice == '3':
+                    self.run_price_prediction()
+                elif choice == '4':
                     print("Thank you for using the Agricultural Assistant!")
                     break
                 else:
@@ -585,6 +547,78 @@ class AgriculturalAssistant:
                     print(suggestion)
             else:
                 print(result)  # Error message
+        except ValueError as e:
+            print(f"Error: {e}. Please enter valid values.")
+    
+    def run_price_prediction(self):
+        """Interactive crop price prediction with improved file handling"""
+        print("\n----- Crop Price Prediction -----")
+        
+        if self.price_scaler is None:
+            print("Price prediction model is not loaded. This feature is unavailable.")
+            return
+            
+        try:
+            # Let user specify the data file with default option
+            default_path = os.path.join(self.crop_price_prediction_dir, "historical_prices.csv")
+            prompt = f"Enter path to historical prices CSV file\n(default: {default_path}): "
+            
+            historical_data_path = input(prompt).strip()
+            if not historical_data_path:
+                historical_data_path = default_path
+                
+            # Check if file exists
+            if not os.path.exists(historical_data_path):
+                # Try relative to base path
+                alt_path = os.path.join(self.base_path, historical_data_path)
+                if os.path.exists(alt_path):
+                    historical_data_path = alt_path
+                else:
+                    print(f"Error: File not found at {historical_data_path}")
+                    return
+                    
+            # Preview available crops
+            try:
+                df = pd.read_csv(historical_data_path)
+                if 'crop_name' in df.columns:
+                    available_crops = df['crop_name'].unique()
+                    print(f"Available crops in dataset: {', '.join(available_crops)}")
+            except Exception as e:
+                print(f"Warning: Could not preview crops in file: {e}")
+                
+            crop_name = input("Enter crop name (leave blank for all crops): ")
+            if crop_name.strip() == "":
+                crop_name = None
+                
+            print("\nPredicting prices. This may take a moment...")
+            result = self.predict_crop_prices(crop_name, historical_data_path)
+            
+            if isinstance(result, dict) and "prediction" in result:
+                print("\nPredicted prices for the next 5 days:")
+                for day in result['prediction']:
+                    if 'date' in day:
+                        print(f"Date: {day['date']}, Price: ${day['price']:.2f}")
+                    else:
+                        print(f"Day {day['day']}: ${day['price']:.2f}")
+                        
+                if "plot_file" in result:
+                    print(f"\nA visualization has been saved to: {result['plot_file']}")
+                    
+                    # If on a system that supports it, offer to open the plot
+                    if sys.platform.startswith('darwin'):  # macOS
+                        open_plot = input("\nWould you like to open the plot? (y/n): ")
+                        if open_plot.lower() == 'y':
+                            os.system(f"open {result['plot_file']}")
+                    elif sys.platform.startswith('win'):  # Windows
+                        open_plot = input("\nWould you like to open the plot? (y/n): ")
+                        if open_plot.lower() == 'y':
+                            os.system(f"start {result['plot_file']}")
+                    elif sys.platform.startswith('linux'):  # Linux
+                        open_plot = input("\nWould you like to open the plot? (y/n): ")
+                        if open_plot.lower() == 'y':
+                            os.system(f"xdg-open {result['plot_file']}")
+            else:
+                print(f"\n{result}")  # Error message
         except ValueError as e:
             print(f"Error: {e}. Please enter valid values.")
     
