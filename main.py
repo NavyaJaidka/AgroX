@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import joblib
 import pickle
-import tensorflow as tf
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
