@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import joblib
 import pickle
-import tensorflow as tf
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -38,8 +37,9 @@ class AgriculturalAssistant:
         self.crop_encoder_path = os.path.join(self.crop_recommendation_dir, "label_encoder.joblib")
         self.fertilizer_model_path = os.path.join(self.fertilizer_recommendation_dir, "fertilizer_model.pkl")
         self.fertilizer_encoder_path = os.path.join(self.fertilizer_recommendation_dir, "label_encoders.pkl")
-        self.price_model_path = os.path.join(self.crop_price_prediction_dir, "lstm_model.h5")
-        self.price_scaler_path = os.path.join(self.crop_price_prediction_dir, "price_scaler.pkl")
+        # Price prediction is disabled in this deployment to remove the TensorFlow dependency.
+        self.price_model_path = None
+        self.price_scaler_path = None
         
         # Define output directories
         self.output_dir = os.path.join(self.base_path, "outputs")
@@ -134,17 +134,8 @@ class AgriculturalAssistant:
         else:
             print("Fertilizer recommendation model not found. Some features will be disabled.")
             
-        # Load price prediction model
-        if all(os.path.exists(path) for path in [self.price_model_path, self.price_scaler_path]):
-            try:
-                print("Loading price prediction model...")
-                self.price_model = tf.keras.models.load_model(self.price_model_path)
-                self.price_scaler = joblib.load(self.price_scaler_path)
-                print("Price prediction model loaded successfully.")
-            except Exception as e:
-                print(f"Error loading price prediction model: {e}")
-        else:
-            print("Price prediction model not found. Some features will be disabled.")
+        # Price prediction feature is disabled because TensorFlow is not included.
+        print("Price prediction feature is disabled in this deployment.")
     
     def recommend_crop(self, N, P, K, temperature, humidity, ph, rainfall):
         """Recommend a crop based on soil parameters and environmental conditions"""
@@ -491,19 +482,16 @@ class AgriculturalAssistant:
             print("\n===== Agricultural Assistant =====")
             print("1. Crop Recommendation")
             print("2. Fertilizer Recommendation")
-            print("3. Crop Price Prediction")
-            print("4. Exit")
+            print("3. Exit")
             
             try:
-                choice = input("\nEnter your choice (1-4): ")
+                choice = input("\nEnter your choice (1-3): ")
                 
                 if choice == '1':
                     self.run_crop_recommendation()
                 elif choice == '2':
                     self.run_fertilizer_recommendation()
                 elif choice == '3':
-                    self.run_price_prediction()
-                elif choice == '4':
                     print("Thank you for using the Agricultural Assistant!")
                     break
                 else:
@@ -600,77 +588,6 @@ class AgriculturalAssistant:
         except ValueError as e:
             print(f"Error: {e}. Please enter valid values.")
     
-    def run_price_prediction(self):
-        """Interactive crop price prediction with improved file handling"""
-        print("\n----- Crop Price Prediction -----")
-        
-        if self.price_model is None:
-            print("Price prediction model is not loaded. This feature is unavailable.")
-            return
-            
-        try:
-            # Let user specify the data file with default option
-            default_path = os.path.join(self.crop_price_prediction_dir, "historical_prices.csv")
-            prompt = f"Enter path to historical prices CSV file\n(default: {default_path}): "
-            
-            historical_data_path = input(prompt).strip()
-            if not historical_data_path:
-                historical_data_path = default_path
-                
-            # Check if file exists
-            if not os.path.exists(historical_data_path):
-                # Try relative to base path
-                alt_path = os.path.join(self.base_path, historical_data_path)
-                if os.path.exists(alt_path):
-                    historical_data_path = alt_path
-                else:
-                    print(f"Error: File not found at {historical_data_path}")
-                    return
-                    
-            # Preview available crops
-            try:
-                df = pd.read_csv(historical_data_path)
-                if 'crop_name' in df.columns:
-                    available_crops = df['crop_name'].unique()
-                    print(f"Available crops in dataset: {', '.join(available_crops)}")
-            except Exception as e:
-                print(f"Warning: Could not preview crops in file: {e}")
-                
-            crop_name = input("Enter crop name (leave blank for all crops): ")
-            if crop_name.strip() == "":
-                crop_name = None
-                
-            print("\nPredicting prices. This may take a moment...")
-            result = self.predict_crop_prices(crop_name, historical_data_path)
-            
-            if isinstance(result, dict) and "prediction" in result:
-                print("\nPredicted prices for the next 5 days:")
-                for day in result['prediction']:
-                    if 'date' in day:
-                        print(f"Date: {day['date']}, Price: ${day['price']:.2f}")
-                    else:
-                        print(f"Day {day['day']}: ${day['price']:.2f}")
-                        
-                if "plot_file" in result:
-                    print(f"\nA visualization has been saved to: {result['plot_file']}")
-                    
-                    # If on a system that supports it, offer to open the plot
-                    if sys.platform.startswith('darwin'):  # macOS
-                        open_plot = input("\nWould you like to open the plot? (y/n): ")
-                        if open_plot.lower() == 'y':
-                            os.system(f"open {result['plot_file']}")
-                    elif sys.platform.startswith('win'):  # Windows
-                        open_plot = input("\nWould you like to open the plot? (y/n): ")
-                        if open_plot.lower() == 'y':
-                            os.system(f"start {result['plot_file']}")
-                    elif sys.platform.startswith('linux'):  # Linux
-                        open_plot = input("\nWould you like to open the plot? (y/n): ")
-                        if open_plot.lower() == 'y':
-                            os.system(f"xdg-open {result['plot_file']}")
-            else:
-                print(f"\n{result}")  # Error message
-        except ValueError as e:
-            print(f"Error: {e}. Please enter valid values.")
     
     def _get_float_input(self, prompt, min_val=None, max_val=None):
         """Get float input with validation"""

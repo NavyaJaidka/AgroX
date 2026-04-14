@@ -117,30 +117,6 @@ def fertilizer_recommendation():
                            soil_types=soil_types,
                            crop_types=crop_types)
 
-@app.route('/price_prediction', methods=['GET', 'POST'])
-def price_prediction():
-    if request.method == 'POST':
-        crop_name = request.form['crop_name'].strip()
-
-        # Fixed path to the CSV file
-        fixed_csv_path = 'crop_price_prediction/historical_prices.csv'
-
-        result = assistant.predict_crop_prices(crop_name, fixed_csv_path)
-
-        if isinstance(result, str):
-            flash(result, 'error')
-            return redirect(url_for('price_prediction'))
-
-        display_result = {
-            'crop_name': crop_name,
-            'predictions': result['prediction'],
-            'plot_file': result['plot_file'].replace('\\', '/')  # Ensure web-safe path
-        }
-
-        return render_template('results/price_result.html', result=display_result)
-
-    return render_template('price_predict.html')
-
 @app.route('/generate_report', methods=['GET', 'POST'])
 def generate_report():
     if request.method == 'POST':
